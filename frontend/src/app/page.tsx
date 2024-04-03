@@ -2,12 +2,8 @@ export default function Home() {
   const uploadFile = async (formData: FormData) => {
     "use server";
 
-    const response = await fetch("http://127.0.0.1:8000/extract", {
+    const response = await fetch("http://127.0.0.1:8000/extract/", {
       method: "POST",
-      headers: {
-        "Content-Type": "multipart/formdata",
-        "Content-Disposition": 'form-data; name="pdf"'
-      },
       body: formData
     });
     console.log(await response.json());
