@@ -11,7 +11,10 @@ async def extract_text(pdf: UploadFile = File(...)):
         temp.write(contents)
         temp.flush()
         context = textract.process(temp.name, encoding='utf-8', extension=".pdf")
-        print(context)
+        
+        tokens = context.split()
+        chunk_size = 100
+        chunks = [tokens[i:i+chunk_size] for i in range(0, len(tokens), chunk_size)]
 
     return {
         "filename": pdf.filename
