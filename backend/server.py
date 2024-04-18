@@ -18,8 +18,9 @@ COLLECTION_NAME = "vectors"
 ATLAS_VECTOR_SEARCH_INDEX_NAME = "vector_index"
 
 EMBEDDING_FIELD_NAME = "embeddings"
-client = MongoClient(MONGO_URI)
-collection = client[DB_NAME][COLLECTION_NAME]
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client[DB_NAME]
+collection = db[COLLECTION_NAME]
 
 app = FastAPI()
 
@@ -27,8 +28,16 @@ app = FastAPI()
 async def extract_text(pdf: UploadFile = File(...)):
     contents = await pdf.read()
     filename = pdf.filename
-    just_filename = filename.split(".")[0]
-    shortened_filename = f'pdf_{just_filename.lower().replace(" ", "_")[:5]}'
+    just_filename = filename[:-4]
+    
+    collection_to_list = list(collection.find({ "filename": just_filename }))
+    
+    if len(collection_to_list) > 0:
+            return {
+                "filename": just_filename,
+                "message": "Document already exists in the database.",
+                "embeddings_successful": False
+            }
     
     with tempfile.NamedTemporaryFile(delete=True) as temp:
         temp.write(contents)
@@ -41,7 +50,7 @@ async def extract_text(pdf: UploadFile = File(...)):
         docs = text_splitter.split_documents(data)
         
         for doc in docs:
-            doc.metadata["filename"] = shortened_filename
+            doc.metadata["filename"] = just_filename
 
         gemini_embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         
@@ -53,6 +62,7 @@ async def extract_text(pdf: UploadFile = File(...)):
         )
         
         return {
-            "filename": shortened_filename,
+            "filename": just_filename,
+            "message": "Document successfully extracted, embedded, and inserted into the database.",
             "embeddings_successful": True
         }
