@@ -1,6 +1,11 @@
 import { Input } from "@/components/ui/input"
+import Conversation from "./_conversation/conversation";
+import { useState } from "react";
+import { ConversationMessage } from "./_conversation/type";
 
 export default function Home() {
+  const [conversation, setConversation] = useState([] as ConversationMessage[])
+
   const uploadFile = async (formData: FormData) => {
     "use server";
 
@@ -36,9 +41,7 @@ export default function Home() {
           </label>
         </form>
       </header>
-      <section className="h-[calc(100dvh-158px)] overflow-y-scroll">
-
-      </section>
+      <Conversation conversation={[{ query: "Hello", result: "Hi" }]} />
       <footer className="w-full flex justify-center">
         <form action={queryFile} className="pb-5 w-4/5 relative">
           <label>
