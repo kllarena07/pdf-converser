@@ -6,7 +6,11 @@ from split_pdf import split_pdf
 from pydantic import BaseModel
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_mongodb import MongoDBAtlasVectorSearch
+
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
 
 load_dotenv(override=True)
 
@@ -16,7 +20,6 @@ DB_NAME = "langchain-gemini"
 COLLECTION_NAME = "vectors"
 ATLAS_VECTOR_SEARCH_INDEX_NAME = "vector_index"
 
-EMBEDDING_FIELD_NAME = "embeddings"
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 collection = db[COLLECTION_NAME]
@@ -49,6 +52,7 @@ async def extract_text(pdf: UploadFile = File(...)) -> ExtractionMsg:
             "resync": resync
         }
 
+    # just check for which documents aren't added and add them instead of deleting the whole thing
     if len(collection_to_list) != 0 and len(collection_to_list) != len(docs):
         collection.delete_many({ "filename": just_filename })
         print(f"""
@@ -76,7 +80,47 @@ async def extract_text(pdf: UploadFile = File(...)) -> ExtractionMsg:
 
 class UserQuery(BaseModel):
     query: str
+    filename: str
 
 @app.post("/query/")
 async def query_pdf(user_query: UserQuery):
-    return { "query": user_query.query }
+    gemini_embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    vector_search = MongoDBAtlasVectorSearch(collection=collection, embedding=gemini_embeddings, index_name=ATLAS_VECTOR_SEARCH_INDEX_NAME)
+
+    # need to omit _id from returned documents
+    qa_retriever = vector_search.as_retriever(
+        search_type="similarity",
+        search_kwargs={
+            "k": 200,
+            "filter": {
+                "filename": user_query.filename
+            },
+            "post_filter_pipeline": [{ "$limit": 25 }]
+        }
+    )
+    
+    prompt_template = """
+        Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.
+        
+        {context}
+        
+        Question: {question}
+    """
+    
+    PROMPT = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+    
+    gemini_llm = ChatGoogleGenerativeAI(model="gemini-1.0-pro")
+    
+    qa = RetrievalQA.from_chain_type(llm=gemini_llm,chain_type="stuff", retriever=qa_retriever, return_source_documents=True, chain_type_kwargs={"prompt": PROMPT})
+    
+    docs = qa({"query": user_query.query})
+    
+    return { "query": user_query.query, "result": docs["result"] }
+
+class DeleteQuery(BaseModel):
+    filename: str
+
+@app.post("/deleteAll/")
+async def delete_all(filename: DeleteQuery):
+    collection.delete_many({ "filename": filename.filename })
+    return { "message": f"All documents with the filename: {filename.filename} have been deleted." }
